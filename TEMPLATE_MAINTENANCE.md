@@ -1,0 +1,456 @@
+<!-- markdownlint-disable MD013 -->
+
+# Template Maintenance Guide
+
+## Metadata
+
+- **Status:** Active
+- **Owner:** Repository Maintainers
+- **Last Updated:** 2026-09-23
+- **Scope:** Periodic maintenance procedures for the `franklesniak/copilot-repo-template` repository, including dependency review cadence, pre-commit hook upkeep, Terraform/TFLint version reviews, schema and worked-example reviews, template sync taxonomy upkeep, and validation steps for template-only changes. Does not cover repositories created FROM this template; consumers of the template should follow [OPTIONAL_CONFIGURATIONS.md](OPTIONAL_CONFIGURATIONS.md#ongoing-maintenance) instead.
+- **Related:** [Repository Copilot Instructions](.github/copilot-instructions.md), [Optional Configurations](OPTIONAL_CONFIGURATIONS.md), [upstream Contributing](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/CONTRIBUTING.md)
+
+This guide is for **maintainers of the `franklesniak/copilot-repo-template` repository**. It documents periodic maintenance tasks to keep the template current and functional.
+
+> **Note:** If you created a repository FROM this template, see [OPTIONAL_CONFIGURATIONS.md](OPTIONAL_CONFIGURATIONS.md#ongoing-maintenance) for maintenance guidance relevant to your repository.
+
+---
+
+## Table of Contents
+
+- [Recommended Review Cadence](#recommended-review-cadence)
+- [Updating Pre-commit Hook Versions](#updating-pre-commit-hook-versions)
+- [Reviewing the Worked-Example Schema and Data CI Workflow](#reviewing-the-worked-example-schema-and-data-ci-workflow)
+- [Reviewing the Template Sync Module Taxonomy](#reviewing-the-template-sync-module-taxonomy)
+- [Adding or Modifying Template-Substitution Markers](#adding-or-modifying-template-substitution-markers)
+- [Reviewing Python Version Requirements](#reviewing-python-version-requirements)
+- [Reviewing Terraform and TFLint Version Requirements](#reviewing-terraform-and-tflint-version-requirements)
+- [Reviewing Terraform Provider Versions](#reviewing-terraform-provider-versions)
+- [Reviewing Instruction File Versions](#reviewing-instruction-file-versions)
+- [Refreshing Imported Style Guides](#refreshing-imported-style-guides)
+- [Reviewing Agent Instruction Files](#reviewing-agent-instruction-files)
+- [Testing Template Changes](#testing-template-changes)
+
+---
+
+## Recommended Review Cadence
+
+To keep the template current and functional, maintainers **SHOULD** review template documentation and workflows on a **quarterly basis**.
+
+**Quarterly Review Checklist:**
+
+- [ ] Review and update pre-commit hook versions
+- [ ] Check for updates to GitHub Actions used in workflows
+- [ ] Review and update Terraform and TFLint versions in CI workflows
+- [ ] Review the template sync module taxonomy when template-managed paths changed
+- [ ] Review instruction files for accuracy and relevance
+- [ ] Verify all CI workflows still pass with latest dependency versions
+- [ ] Verify agent instruction files (`.cursor/rules/repository-instructions.mdc`, `.hermes.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) remain aligned with `.github/copilot-instructions.md`
+- [ ] Review and address any open issues or feedback
+
+**Annual Review:**
+
+- [ ] Review Python version requirements (typically October)
+- [ ] Review major version updates for key dependencies (Node.js, Terraform providers, etc.)
+- [ ] Evaluate new GitHub features that could enhance the template
+
+> **Tip:** Set a calendar reminder for quarterly reviews to ensure consistent maintenance.
+
+---
+
+### Reviewing Pinned GitHub Actions References
+
+Every template-owned external action and reusable workflow reference uses an upstream-verified full commit SHA with a same-line release annotation. Keep the direct `uses:` declarations and applicable `github-actions` Dependabot updates. For each changed pin, verify the release-to-commit mapping in its upstream repository, review release changes and advisories, confirm supported inputs and runner requirements, and run the affected gates. Preserve workflow-specific controls, including the fix-preview permissions and failure boundary.
+
+[Dependabot version updates](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories#github-actions) support these pins and same-line comments. [Vulnerability alerts for actions](https://docs.github.com/en/actions/reference/security/secure-use#monitoring-the-actions-in-your-workflows) do not cover SHA references, so maintainers must review upstream advisories separately. A SHA does not lock downloaded tools or make an action compatible with unsupported runners or GitHub Enterprise Server.
+
+Ordinary workflow-security validation checks pin syntax offline. The explicit `--verify-releases` mode checks upstream release mappings through network access; an unavailable lookup is not verified. Adopter-created workflows remain outside the default contract unless the owner deliberately enables the documented `--strict` profile. See the [upstream workflow-security guide](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/docs/workflow-security.md) for both modes.
+
+## Updating Pre-commit Hook Versions
+
+Pre-commit hooks **SHOULD** be kept up-to-date for security and compatibility.
+
+The runner is a separate dependency. Its one exact direct pin lives in `requirements-pre-commit.txt`, owned by `baseline` rather than the optional Python language module. GitHub Dependabot's `pip` ecosystem updates that requirement; its `pre-commit` ecosystem updates hook revisions. Review runner release notes and Python compatibility, install with `python -m pip install -r requirements-pre-commit.txt`, compare `pre-commit --version` with the requirement, then run the aggregate gate. CI, the Claude web bootstrap, and the selected Copilot setup workflow derive their expected version from the requirement. Do not copy the numeric version into other consumers.
+
+The direct pin does not lock transitive dependencies or prove package authenticity. The GitHub pip cache names the requirement, and hook-cache keys include it with the hook configuration. A runner update therefore invalidates the relevant caches. Azure-only adopters review this requirement manually or with their chosen supported update service; GitHub Dependabot is not supplied by Azure Pipelines.
+
+### Maintenance Cadence
+
+This template uses a layered cadence for pre-commit hook maintenance:
+
+- **Routine (weekly, automated).** [Dependabot](.github/dependabot.yml)'s `pre-commit` ecosystem opens grouped pull requests for minor and patch updates to hooks pinned in `.pre-commit-config.yaml`. These PRs SHOULD be reviewed and merged routinely; CI exercises the updated hooks via `pre-commit run --all-files` in `.github/workflows/precommit-ci.yml`.
+- **Major-version refreshes (manual).** Maintainers MAY run `pre-commit autoupdate` manually to refresh major versions, or for an explicit quarterly maintenance pass. Major version bumps are not handled by the grouped Dependabot configuration and require an intentional review.
+- **Changelog review.** Before accepting any major hook update (whether from `pre-commit autoupdate` or a Dependabot PR), maintainers MUST review the upstream changelog or release notes for breaking changes. See [Breaking Change Considerations](#breaking-change-considerations) for tool-specific notes.
+- **Validation.** After any update — Dependabot-driven or manual — maintainers MUST run `pre-commit run --all-files` locally and confirm a clean pass.
+- **Commit hygiene.** Hook version bumps and any auto-fixes produced by the updated hooks MUST be committed together in the same change. Do not split formatting churn caused by an updated hook into a separate "fix formatting" commit.
+
+### Quick Update
+
+```bash
+# Check for and apply updates to pre-commit hooks
+pre-commit autoupdate
+
+# Test that updated hooks work correctly
+pre-commit run --all-files
+```
+
+**Frequency:** Quarterly (or as needed for major-version refreshes), or sooner when security advisories are published for hook dependencies. Routine minor and patch updates are handled automatically by Dependabot — see [Maintenance Cadence](#maintenance-cadence) above for the full layered cadence.
+
+### Tools to Track
+
+The following pre-commit hooks and npm-based documentation tools are configured in this template. Check their repositories for the latest releases:
+
+| Tool | Repository | Purpose |
+| --- | --- | --- |
+| pre-commit-hooks | <https://github.com/pre-commit/pre-commit-hooks> | General file checks (trailing whitespace, JSON validation via `check-json`, YAML parsing via `check-yaml`, etc.) |
+| Black | <https://github.com/psf/black> | Python code formatting |
+| Ruff | <https://github.com/astral-sh/ruff-pre-commit> | Python linting and formatting |
+| markdownlint-cli2 | <https://github.com/DavidAnson/markdownlint-cli2> | Markdown linting |
+| remark-cli | <https://github.com/remarkjs/remark/tree/main/packages/remark-cli> | Markdown CLI runner for offline link validation |
+| remark-validate-links | <https://github.com/remarkjs/remark-validate-links> | Offline Markdown local file and heading validation |
+| Repo-local Terraform hooks | `.github/scripts/terraform_hooks.py` | Cross-platform Terraform formatting, validation, and linting wrappers |
+| yamllint | <https://github.com/adrienverge/yamllint> | YAML style enforcement (driven by `.yamllint.yml`) |
+| actionlint | <https://github.com/rhysd/actionlint> | GitHub Actions workflow linting |
+| check-jsonschema | <https://github.com/python-jsonschema/check-jsonschema> | JSON Schema validation (worked-example schema and any downstream-added schema-backed file families); also provides the `check-metaschema` hook |
+
+### npm Advisory and Deprecation Signals
+
+npm audit advisories and npm package deprecation warnings are different signals. Audit findings name an affected range and should be resolved through an intentional dependency refresh, documented owner-approved override, or recorded owner-reviewed debt. Deprecation warnings can remain visible even when the installed version is outside every published advisory range.
+
+When a tool is pinned in both `package.json` / `package-lock.json` and `.pre-commit-config.yaml`, align both pins in the same change. Dependabot updates the npm and pre-commit ecosystems through separate pull requests, so a manual remediation may need to bridge the two surfaces.
+
+`markdownlint-cli2` is a Node-language pre-commit hook. Hook-level `language_version: "lts"` provisions the latest LTS Node line through nodeenv instead of relying on ambient runner Node. That covers local and downstream aggregate pre-commit runs, but it can require network access or a populated pre-commit cache on first use and can change the exact Node line used by aggregate pre-commit CI as Node LTS advances.
+
+Current accepted deprecated-transitive debt: `npm ls glob --all` shows the direct `glob@13.0.6` plus three deprecated transitive `glob@10.5.0` copies:
+
+- `remark-validate-links -> unified-engine@11 -> glob@10.5.0`
+- `remark-validate-links -> unified-engine@11 -> load-plugin -> @npmcli/config -> @npmcli/map-workspaces -> glob@10.5.0`
+- `remark-validate-links -> unified-engine@11 -> load-plugin -> @npmcli/config -> @npmcli/package-json -> glob@10.5.0`
+
+Attempted remediation checked the current `remark-validate-links` and `unified-engine` release lines; no upstream release currently removes these deprecated transitive paths.
+
+`GHSA-5j98-mcp5-4vw2` / `CVE-2025-64756` is patched in `glob@10.5.0`, and `npm audit` reports no `glob` finding for the installed direct or transitive versions. A broad root `glob` override is not applied by default because it forces transitive consumers that declare `glob ^10` onto a newer major line. The owner decision needed for any override is explicit acceptance of that compatibility risk after validation in a temporary branch or throwaway working tree.
+
+### Files Requiring Manual Updates
+
+After running `pre-commit autoupdate`, manually update version references in documentation files. The `pre-commit autoupdate` command only updates `.pre-commit-config.yaml`—version references in documentation examples require manual updates.
+
+#### Black (Python formatter)
+
+- `.pre-commit-config.yaml` (updated by `pre-commit autoupdate`)
+- `OPTIONAL_CONFIGURATIONS.md` (Python pre-commit examples)
+- `GETTING_STARTED_NEW_REPO.md` (commented example in pre-commit config)
+- `GETTING_STARTED_EXISTING_REPO.md` (Python pre-commit examples)
+
+#### Ruff (Python linter)
+
+- `.pre-commit-config.yaml` (updated by `pre-commit autoupdate`)
+- `OPTIONAL_CONFIGURATIONS.md` (Python pre-commit examples)
+- `GETTING_STARTED_NEW_REPO.md` (commented example in pre-commit config)
+- `GETTING_STARTED_EXISTING_REPO.md` (Python pre-commit examples)
+
+#### Repo-local Terraform Hooks
+
+- `.pre-commit-config.yaml` (local hook IDs and file scopes)
+- `.github/scripts/terraform_hooks.py` (wrapper behavior and subprocess command construction)
+- `tests/test_terraform_hooks.py` (unit coverage for wrapper behavior)
+- `.github/workflows/precommit-ci.yml` and `.github/workflows/auto-fix-precommit.yml` (Terraform and TFLint setup for aggregate pre-commit runs)
+- Contributor documentation that explains Terraform local validation (`README.md`, `CONTRIBUTING.md`, and the getting-started guides)
+
+#### Other Hooks (no documentation references)
+
+The following hooks are only referenced in `.pre-commit-config.yaml` and do not require manual documentation updates:
+
+- pre-commit-hooks
+
+#### Dual-Pinned Tools (npm + pre-commit)
+
+`markdownlint-cli2` is version-pinned in both `package.json` / `package-lock.json` and `.pre-commit-config.yaml`. Dependabot updates these pins through separate ecosystem pull requests. A manual bump of one pin MUST align the other in the same change. This is a configuration-pin alignment note, not a prose-documentation mirror, and `pre-commit autoupdate` does not edit `package.json`.
+
+### Verification
+
+After updating versions, use these commands to search for potentially stale version references:
+
+```bash
+# Check for Black version references (update the version number as appropriate)
+grep -rn "rev:.*26\.1\.0" --include="*.md" --include="*.yaml" .
+
+# Check for Ruff version references (update the version number as appropriate)
+grep -rn "rev:.*v0\.14\.14" --include="*.md" --include="*.yaml" .
+
+# Check for repo-local Terraform hook references.
+# `-E` enables extended regex so the alternation works on both GNU and BSD
+# (macOS) grep; basic-regex `\|` is a GNU extension and is not portable.
+grep -rEn "terraform-fmt|terraform-validate|terraform-tflint" --include="*.md" --include="*.yaml" --include="*.yml" .
+
+# Generic search for any rev: patterns with version numbers
+grep -rn "rev:.*v\?[0-9]\+\.[0-9]\+\.[0-9]\+" --include="*.md" --include="*.yaml" .
+```
+
+### Breaking Change Considerations
+
+When updating to new major versions, check the release notes for breaking changes:
+
+- **pre-commit-hooks:** May remove deprecated hooks or change Python version requirements. Review [pre-commit-hooks releases](https://github.com/pre-commit/pre-commit-hooks/releases).
+
+- **Black:** Major releases may introduce style changes that reformat existing code differently. Review [Black changelog](https://github.com/psf/black/blob/main/CHANGES.md). Consider running `black --check` on a representative codebase before upgrading.
+
+- **Ruff:** Frequently adds new rules that may flag previously-passing code. Review [Ruff changelog](https://github.com/astral-sh/ruff/blob/main/CHANGELOG.md) and the [Ruff default rules](https://docs.astral.sh/ruff/default-rules/) page. Ruff 0.16.0 changed the default rule set: it enabled many more rules by default and removed the `E4` and `E7` pycodestyle rules plus some pyflakes (`F`) rules from the defaults. Because this repository has no root `[tool.ruff]` table, the `ruff-check` hook in `.pre-commit-config.yaml` carries the rule policy in its `args`: `--extend-select=E4,E7,E9,F,ISC001` re-selects the full pre-0.16 default set so every previously enforced rule stays enforced and adds `ISC001`, which enforces the Python instructions' rule against same-line implicit string concatenation; `--ignore=FLY002` keeps `"".join(...)` allowed as documented in the Python instructions; and `--unfixable=ISC001` keeps `ISC001` findings report-only so a possible missing comma is reviewed by a person instead of being merged automatically. When a Ruff bump changes the default set again, re-run `pre-commit run ruff-check --all-files`, review the new findings, and adjust those `args` or the code rather than adding a root `[tool.ruff]` table without maintainer authorization.
+
+- **markdownlint-cli2:** Major bumps may raise the hook's Node.js engine floor and change the bundled `markdownlint` engine used by the outer `npm run lint:md` script. The `0.22.1` to `0.23.0` refresh raised the hook's Node.js floor from `>=20` to `>=22`, required hook-level `language_version: "lts"`, and cleared the `js-yaml` and `markdown-it` advisories carried by bundled dependencies. Because the bundled `markdownlint` engine can change rule behavior, review the changelog and run the validation described in [Maintenance Cadence](#maintenance-cadence).
+
+- **Repo-local Terraform hooks:** Changes to `.github/scripts/terraform_hooks.py` may change hook IDs, command arguments, file scopes, or required external tools. Keep wrapper tests, `.pre-commit-config.yaml`, aggregate pre-commit workflows, and contributor documentation aligned.
+
+- **yamllint:** New rules or default tightening can flag previously-passing YAML. Review [yamllint releases](https://github.com/adrienverge/yamllint/releases). The repository's `.yamllint.yml` carries a documented `truthy.check-keys: false` exception; verify that exception still applies after major updates.
+
+- **actionlint:** Adds new checks as GitHub Actions evolves. Review [actionlint releases](https://github.com/rhysd/actionlint/releases). The hook builds the binary from a Go toolchain on first run; major version bumps may change ShellCheck integration or runner-label awareness.
+
+- **check-jsonschema:** Validator behavior, JSON Schema draft support, and bundled schema catalog versions can change. Review [check-jsonschema releases](https://github.com/python-jsonschema/check-jsonschema/releases). After bumping, re-run `pytest tests/test_schema_examples.py -v` to confirm the worked-example `valid/` and `invalid/` fixtures still produce the expected pass/fail outcomes.
+
+---
+
+## Reviewing the Worked-Example Schema and Data CI Workflow
+
+The template ships a worked-example JSON Schema (`schemas/example-config.schema.json`), valid and invalid example fixtures under `schemas/examples/example-config/`, the schema-example pytest contract at `tests/test_schema_examples.py`, and the dedicated [`.github/workflows/data-ci.yml`](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/workflows/data-ci.yml) workflow. These need periodic review to stay aligned with current JSON Schema and pre-commit hook versions.
+
+**When to review:** Quarterly, or whenever `check-jsonschema`, `pre-commit-hooks`, `yamllint`, or `actionlint` have a major version bump.
+
+**What to check:**
+
+1. The worked-example schema's declared `$schema` draft URI is still appropriate (the template uses JSON Schema Draft 2020-12).
+2. The worked-example fixtures still demonstrate the contract clearly — at minimum, `valid/minimal.json`, `valid/full.json`, `invalid/missing-required.json`, `invalid/wrong-type.json`, and `invalid/extra-property.json` should each still illustrate a distinct schema behavior.
+3. `pytest tests/test_schema_examples.py -v` still passes (every `valid/` fixture exits `0`; every `invalid/` fixture exits non-zero).
+4. The `.github/workflows/data-ci.yml` workflow continues to invoke `check-json`, `check-yaml`, `yamllint`, `actionlint`, `check-jsonschema`, and `check-metaschema`, and its top-of-file comment still accurately describes how it differs from `auto-fix-precommit.yml`.
+5. The canonical [downstream removal checklist](schemas/README.md#downstream-removal-checklist) in `schemas/README.md` still matches the actual files and hook IDs that ship with the worked example.
+
+**When to update:**
+
+- If a hook ID, hook scope, or schema file moves, update the schema, the fixtures, the pre-commit config, the data CI workflow, and the canonical removal checklist together in the same change.
+- Do not duplicate the removal-checklist steps elsewhere; keep `schemas/README.md` as the single source of truth and link to it from any other documentation that mentions removal.
+
+---
+
+## Reviewing the Template Sync Module Taxonomy
+
+The downstream sync procedure uses [`.template-sync/manifest.yml`](.template-sync/manifest.yml) as the source of truth for module definitions, path mappings, and filtering semantics. The Module Definitions and Path Mapping tables in [TEMPLATE_UPDATE_PROCEDURE.md](TEMPLATE_UPDATE_PROCEDURE.md#step-6-use-the-authoritative-module-taxonomy) are the rendered human view of that manifest.
+
+Update that taxonomy whenever a template-managed file is:
+
+- added
+- removed
+- renamed
+- moved between directories
+- changed so its primary purpose belongs to a different module
+
+For each affected path, maintainers **MUST** update `.template-sync/manifest.yml` first, review whether the path mapping still uses the most specific pattern, whether multi-module rows still express the intended `requires_all` AND and `requires_any` OR relations, and whether the module definition list needs a new or revised module. Then update or regenerate the rendered tables in `TEMPLATE_UPDATE_PROCEDURE.md`. Keep examples and worked sync scenarios in `TEMPLATE_UPDATE_PROCEDURE.md` aligned with any taxonomy change.
+
+Treat shared `agent-instructions`, the six explicit `agent-*` selections, and optional `instruction-enforcement` as separate choices. Keep enforcement's baseline hook and dedicated GitHub/Azure routes aligned with its runner requirements; the optional Python project must not become a dependency. Preserve the policy-only selection and deliberate migration between marker and standalone profiles. The marker remains authoritative in marker mode; the protected standalone profile controls standalone applicability and reports exact local exceptions without proving owner authorization. See the [upstream instruction-enforcement guide](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/docs/instruction-enforcement.md).
+
+When instruction obligations change, update the reviewed marker catalog and standalone seed catalog together and run their parity check. Review `instruction_profile_migration.py`, both profile/catalog schemas, inline marker registrations, and lifecycle tests for retained agents, hosts, sync removal, changed protected profiles and scoped declarations. Keep the Copilot setup workflow restricted to Copilot with GitHub Actions and the Claude command restricted to Claude with GitHub Actions. Update the workflow-security inventory when setup or dedicated GitHub validation routes change.
+
+When module relations, glob patterns, or marker fields change, maintainers **MUST** review `.template-sync/scripts/validate_marker.py`, `.template-sync/scripts/generate_sync_candidates.py`, `tests/test_validate_marker.py`, and `tests/test_generate_sync_candidates.py` so the downstream retained-state helper and candidate table generator still match the manifest contract. These helpers should continue to use the existing schema validation stack (`PyYAML`, `jsonschema`, and the checked-in schemas) instead of introducing a separate validator dependency.
+
+When reviewing a taxonomy change, include `pytest tests/test_template_manifest.py tests/test_validate_marker.py tests/test_generate_sync_candidates.py -v` so the manifest schema, semantic checks, rendered-table drift checks, retained-state helper behavior, and candidate table generation behavior run together. For enforcement, agent or host selection changes, also run `pytest tests/test_instruction_profile.py tests/test_validate_instruction_contracts.py tests/test_materialize_downstream_adoption.py tests/test_contract_wiring.py tests/test_workflow_security_lifecycle.py -v`. These checks exercise static policy and selection behavior; they do not establish hosted activation or future agent compliance. Also include at least one validation pass with `npm run lint:md`, `npm run lint:md:links`, and `npm run lint:md:nested` (the latter catches lint failures in nested Markdown code fences inside files such as `TEMPLATE_UPDATE_PROCEDURE.md`). If the change also updates schema, YAML, GitHub Actions, Python, PowerShell, or Terraform files, run the validation commands for those modules as well.
+
+---
+
+## Adding or Modifying Template-Substitution Markers
+
+For the portable authoring principle, see [upstream Template-substitution marker boundaries and replacement surfaces](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/instructions/docs.instructions.md#template-substitution-marker-boundaries-and-replacement-surfaces).
+
+When adding or modifying a template-substitution marker, maintainers **MUST** keep these repository-specific surfaces in sync in the same change:
+
+- The PowerShell snippet in [`GETTING_STARTED_NEW_REPO.md`](GETTING_STARTED_NEW_REPO.md)
+- The GNU `sed` snippet in [`GETTING_STARTED_NEW_REPO.md`](GETTING_STARTED_NEW_REPO.md)
+- The BSD `sed` snippet in [`GETTING_STARTED_NEW_REPO.md`](GETTING_STARTED_NEW_REPO.md)
+- The manual Find/Replace instructions in [`GETTING_STARTED_NEW_REPO.md`](GETTING_STARTED_NEW_REPO.md)
+- The grep patterns for hard-coded marker strings in [upstream `.github/workflows/check-placeholders.yml`](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/workflows/check-placeholders.yml)
+- The validation phases and allowlists in [upstream `.github/workflows/check-placeholders.yml`](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/workflows/check-placeholders.yml), because the placeholder validation workflow must stay aligned with every marker that adopters are expected to replace.
+- The **Files That Need Placeholders Replaced** inventory table in [`GETTING_STARTED_NEW_REPO.md`](GETTING_STARTED_NEW_REPO.md), because it is the at-a-glance marker-to-file mapping adopters read first and must add or update the corresponding row when a marker changes.
+- The **What the Placeholders Mean** definition list in [`GETTING_STARTED_NEW_REPO.md`](GETTING_STARTED_NEW_REPO.md), because it is the canonical glossary for each marker's meaning and must define new markers or reflect renames.
+- The **GHES adopters** callouts and snippet comments in [`GETTING_STARTED_NEW_REPO.md`](GETTING_STARTED_NEW_REPO.md) that enumerate files requiring `github.com`-to-GHES host substitution, because they tell GHES adopters which absolute GitHub URLs need host substitution.
+- The per-file adoption-step subsections in [`GETTING_STARTED_EXISTING_REPO.md`](GETTING_STARTED_EXISTING_REPO.md) that reference marker strings, including **CODEOWNERS** (`@OWNER`), **Security Policy** (`[security contact email]` and relevant `OWNER/REPO` URL variants), **LICENSE** (`Frank Lesniak`), **Code of Conduct** (`[INSERT CONTACT METHOD]`), **VS Code Settings** (`window.title` instruction text), **Adopting Issue Templates** (`OWNER/REPO`), and **Adopting PR Template** (`OWNER/REPO`), because they are the parallel adoption surfaces for existing-repository adopters.
+- The **First-Adoption Preflight Answers** table in [`OPTIONAL_CONFIGURATIONS.md`](OPTIONAL_CONFIGURATIONS.md), because it maps maintainer policy decisions to policy-driven markers (`[INSERT CONTACT METHOD]`, `[security contact email]`, `@OWNER`, and GHES host replacement) and must be extended when those markers change.
+
+---
+
+## Reviewing Python Version Requirements
+
+This template supports Python versions that are currently receiving bugfix updates from the Python core team.
+
+**When to review:** Annually, typically around October when new Python versions are released.
+
+**What to check:**
+
+1. Visit the [Python Developer's Guide - Versions](https://devguide.python.org/versions/) page
+2. Identify which versions are in "bugfix" status (not "security" or "end-of-life")
+3. Update the following files if the supported version window changes:
+   - `.github/workflows/python-ci.yml` (Python version matrix and any single-version setup steps)
+   - `.github/workflows/precommit-ci.yml` (pre-commit job runtime pin)
+   - `.github/workflows/data-ci.yml` (data-file CI runtime pin)
+   - `.github/workflows/auto-fix-precommit.yml` (auto-fix job runtime pin)
+   - Any other `.github/workflows/*.yml` step that pins `actions/setup-python` `python-version`, so the checklist stays complete as workflows change
+   - `pyproject.toml` (requires-python field)
+   - `templates/python/pyproject.toml` (requires-python field)
+   - Black `target-version` entries in the root and template `pyproject.toml` files
+   - `[tool.mypy] python_version` entries when the lowest supported version changes
+   - `.github/instructions/python.instructions.md` (version references, after explicit protected-file authorization)
+
+---
+
+## Reviewing Terraform and TFLint Version Requirements
+
+This template uses pinned Terraform and TFLint versions in CI workflows for reproducibility and pre-commit hook execution.
+
+**When to review:** Quarterly, or when a new stable Terraform or TFLint release is available.
+
+**What to check:**
+
+1. Visit the [Terraform Releases](https://releases.hashicorp.com/terraform/) page or the [Terraform GitHub Releases](https://github.com/hashicorp/terraform/releases)
+2. Visit the [TFLint Releases](https://github.com/terraform-linters/tflint/releases) page
+3. Identify the latest stable releases (avoid alpha, beta, or RC versions)
+4. Update the Terraform and TFLint versions in the following workflow files:
+   - `.github/workflows/terraform-ci.yml` (format, validate, lint, and test jobs)
+   - `.github/workflows/precommit-ci.yml` (pre-commit job)
+   - `.github/workflows/auto-fix-precommit.yml` (auto-fix job)
+
+**Version considerations:**
+
+- **Pre-commit workflows:** Use the latest stable Terraform and TFLint versions for repo-local pre-commit hooks (`terraform-fmt`, `terraform-validate`, `terraform-tflint`)
+- **Terraform CI tests:** The test framework requires Terraform 1.6.0+ and mock_provider requires 1.7.0+. The latest stable version satisfies both requirements.
+- **TFLint consistency:** Keep `tflint_version` aligned across Terraform CI and aggregate pre-commit workflows so local, CI, and auto-fix runs evaluate Terraform linting with the same tool version.
+- **Documentation:** After updating, verify that examples in documentation under `docs/terraform/` remain accurate. Note that these are illustrative examples and do not need to be updated unless the version syntax changes.
+
+---
+
+## Reviewing Terraform Provider Versions
+
+The Terraform instructions file uses the newest stable major versions in provider version constraint examples. These should be reviewed periodically to ensure examples reflect current best practices.
+
+**When to review:** Quarterly, or when a new major version of a provider becomes the recommended stable release.
+
+**What to check:**
+
+1. Visit the provider registries:
+   - [AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest)
+   - [Azure Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest)
+   - [GCP Provider](https://registry.terraform.io/providers/hashicorp/google/latest)
+
+   > **Note:** Terraform Registry navigation links — including the provider links above — **MUST** use the `latest` path segment, not a pinned provider or module version. See the **Terraform Registry Reference URLs Use /latest/** ADR in [`.github/TEMPLATE_DESIGN_DECISIONS.md`](.github/TEMPLATE_DESIGN_DECISIONS.md) for the scope (Terraform-file comments and instructional Markdown), rationale, and authoritative version sources; the canonical, agent-loadable rule for Terraform-file comments lives in [upstream `.github/instructions/terraform.instructions.md`](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/instructions/terraform.instructions.md).
+2. Identify current stable major versions for each provider
+3. If a new major version is now the recommended stable release, update the following files:
+   - `.github/instructions/terraform.instructions.md` (version constraint examples throughout)
+   - `.github/TEMPLATE_DESIGN_DECISIONS.md` (current versions table in "Current Provider Versions in Terraform Examples" section)
+
+**Current versions (as of last update):**
+
+| Provider | Example Constraint | Current Stable |
+| --- | --- | --- |
+| AWS | `~> 6.0` | 6.31.0 |
+| Azure | `~> 4.0` | 4.58.0 |
+| GCP | `~> 7.0` | 7.18.0 |
+
+**How to update:**
+
+When updating provider versions in terraform.instructions.md, search for the version constraint patterns:
+
+```bash
+# Search for AWS provider version references
+grep -nE "~> 5\.0|~> 6\.0" .github/instructions/terraform.instructions.md
+
+# Search for Azure provider version references
+grep -nE "~> 3\.0|~> 4\.0" .github/instructions/terraform.instructions.md
+
+# Search for GCP provider version references
+grep -nE "~> 6\.0|~> 7\.0" .github/instructions/terraform.instructions.md
+```
+
+Update all occurrences to the new major version constraint (e.g., `~> 6.0` to `~> 7.0`).
+
+---
+
+## Reviewing Instruction File Versions
+
+The instruction files in `.github/instructions/` include version numbers in the format `Major.Minor.YYYYMMDD.Revision`.
+
+**When to update:**
+
+- Major version: Breaking changes to coding standards
+- Minor version: New guidance or significant clarifications
+- Date/Revision: Bug fixes or minor wording changes
+
+**Files to review:**
+
+- `.github/instructions/docs.instructions.md`
+- `.github/instructions/python.instructions.md`
+- `.github/instructions/powershell.instructions.md`
+- `.github/instructions/terraform.instructions.md`
+
+---
+
+## Refreshing Imported Style Guides
+
+Template maintainers own refreshes from the external style-guide repositories. The retained origin record at `docs/upstream-style-guides.md` identifies each imported generated consumer by repository, immutable commit, path, and Git blob. It remains useful after adopters remove onboarding or template-sync support. See the [upstream copy of the origin record](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/docs/upstream-style-guides.md) when that file is not retained locally.
+
+1. Select an immutable upstream commit. Inspect that revision's normative source, generated consumer, and generation instructions. Import the consumer instruction file; do not substitute the normative source's blob identity.
+2. Retrieve the exact consumer snapshot and verify its Git blob ID. Compare the complete snapshot with the destination, including any newer local content or deliberate deviations. Source instructions are comparison evidence, not permission to edit either repository.
+3. Obtain explicit authorization for the bounded protected-content import. Review the exact hunks and preserve destination-specific authority, module selection, host behavior, and local extensions. Preserve upstream version/date for an exact upstream import; identify and govern any local extension separately.
+4. Apply the authorized changes and update the origin record in the same change. Record the imported consumer's repository, commit, path, blob, generated status, destination, and deliberate local differences. An upstream blob is not a checksum claim for later customized destination content.
+5. Validate the complete guide diffs, Markdown and nested Markdown, instruction contracts, and required pre-commit hooks. Exercise affected retained/excluded language and agent profiles. Confirm the origin record survives onboarding/support omission, preserves local update decisions, and prunes excluded-language references.
+6. Publish the reviewed template update through the normal review process. Downstream owners normally consume it through their existing selective template-update process. Preserve their local ownership, overrides, and explicit protected-file decisions; do not turn an upstream refresh into automatic replacement or deletion.
+
+This process adds no generator, scheduled updater, live-fetch validation gate, or direct-source tracking duty for adopters. A downstream owner can choose a separate direct refresh under that repository's governance. The provenance record supplements, rather than replaces, retained marker ownership and decision records.
+
+---
+
+## Reviewing Agent Instruction Files
+
+Agent instruction files (`.cursor/rules/repository-instructions.mdc`, `.hermes.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) are thin entry points that **MUST** stay aligned with `.github/copilot-instructions.md`. The canonical file holds the full shared rule set; the agent files keep only a minimal inline summary of the highest-priority shared rules plus any platform-specific guidance.
+
+**What to check during review:**
+
+- Canonical-source wording is accurate in `.github/copilot-instructions.md` and the root agent files
+- Minimal shared guidance in the agent files still matches the canonical file for safety, pre-commit, validation commands, and language-instruction references
+- Platform-specific sections still apply and do not contradict the canonical file
+- Removed duplication does not creep back into the agent entry points unnecessarily
+
+**Verification command:**
+
+```bash
+# Compare recent commit history to identify changes that may require alignment review
+# If copilot-instructions.md was modified more recently than agent files,
+# manually verify the minimal summaries and any platform-specific sections
+git log --oneline -5 .github/copilot-instructions.md
+git log --oneline -5 .cursor/rules/repository-instructions.mdc .hermes.md CLAUDE.md AGENTS.md GEMINI.md
+```
+
+**When to update:** Whenever high-priority shared guidance in `.github/copilot-instructions.md` changes, whenever platform-specific guidance changes, or when new agent platforms emerge that require their own convention files.
+
+---
+
+## Testing Template Changes
+
+Before merging significant template changes:
+
+1. Create a test repository from the template
+2. Complete the setup process following `GETTING_STARTED_NEW_REPO.md`
+3. Verify all CI workflows pass
+4. Test the placeholder check workflow triggers and passes after placeholder replacement
+5. Verify issue templates render correctly
+6. Open and close a test PR to verify the PR template
+
+Delete the test repository after verification.
+
+<!-- template-sync: begin github-actions-only -->
+
+## Workflow Security Governance
+
+The `github-actions` module retains a self-contained workflow security contract, validator, schema, and standalone CI gate. Template-sync support also retains the validator and schema as trusted dependencies for future materialization. The manifest owns selection. Before staging, materialization requires a retained contract and checks that it covers every retained manifest-owned workflow in the source inventory. It then validates the reviewed source and renders the retained controls. Baseline selections also retain the always-running pre-commit hook and Data CI invocation. Language-specific requirements disappear with their owning modules.
+
+Authorize `.github/workflow-security-contract.yml` explicitly as a protected policy path before first adoption or replacement. Record permitted local customization and the reviewed update decision. Adopter-created workflows remain outside baseline policy unless the owner explicitly enables `--strict`; synchronization preserves their bytes. Run `python .github/scripts/validate_workflow_security.py` after adoption and updates, and add `--verify-releases` when verifying changed action pins against upstream.
+
+Removing GitHub Actions requires reviewed cleanup of excluded standalone files and replacement of retained shared files with their pruned forms. Materialization never silently deletes those files. Validate the final downstream tree for excluded-module leftovers, including hooks, updater entries, documentation, and policy references. Remove the shared validator and schema only when neither Actions nor template-sync support remains. Dependabot's Actions updater survives only when both GitHub platform automation and Actions are retained; otherwise action updates need manual review.
+
+See the [workflow security guide](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/docs/workflow-security.md) for the baseline/strict boundary, required authorization, exact command fingerprints, intentional failure-aggregation exceptions, and the SHA-pin vulnerability-alert limitation. Copilot prerequisite setup is available when `agent-instructions`, `agent-copilot`, and `github-actions` are selected together. Action-free acquisition remains a future opt-in profile.
+
+<!-- template-sync: end github-actions-only -->

@@ -1,0 +1,89 @@
+# Azure Pipelines aggregate pre-commit gate.
+#
+# Azure Repos pull request validation is configured through branch policy build
+# validation. This YAML intentionally omits a `pr:` trigger.
+
+name: "$(Date:yyyyMMdd).$(Rev:r)"
+
+trigger:
+  branches:
+    include:
+      - "*"
+
+parameters:
+  - name: pythonVersion
+    type: string
+    default: "3.14"
+
+pool:
+  vmImage: "ubuntu-latest"
+
+steps:
+  - checkout: self
+    fetchDepth: 0
+
+  - task: UsePythonVersion@0
+    displayName: "Use Python ${{ parameters.pythonVersion }}"
+    inputs:
+      versionSpec: ${{ parameters.pythonVersion }}
+
+  # template-sync: begin markdown-only
+  - task: UseNode@1
+    displayName: "Use Node.js for nested Markdown"
+    inputs:
+      version: "24.x"
+
+  - bash: npm ci --ignore-scripts
+    displayName: "Install root Markdown dependencies"
+    workingDirectory: "$(Build.SourcesDirectory)"
+  # template-sync: end markdown-only
+
+  # template-sync: begin terraform-only
+  - bash: |
+      set -euo pipefail
+      sudo apt-get update
+      sudo apt-get install -y gnupg software-properties-common
+      wget -O- https://apt.releases.hashicorp.com/gpg |
+        gpg --dearmor |
+        sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
+      echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" |
+        sudo tee /etc/apt/sources.list.d/hashicorp.list
+      sudo apt-get update
+      sudo apt-get install -y "terraform=${TERRAFORM_VERSION}-*"
+      go install "github.com/terraform-linters/tflint@${TFLINT_VERSION}"
+      echo "##vso[task.prependpath]$HOME/go/bin"
+    displayName: "Install Terraform and TFLint"
+    env:
+      TERRAFORM_VERSION: "1.14.4"
+      TFLINT_VERSION: "v0.51.1"
+  # template-sync: end terraform-only
+
+  - bash: |
+      set -euo pipefail
+      python - <<'PY'
+      import re
+      import subprocess
+      import sys
+      from pathlib import Path
+
+      requirement = Path("requirements-pre-commit.txt").read_text(encoding="utf-8").strip()
+      if re.fullmatch(r"pre-commit==[0-9]+\.[0-9]+\.[0-9]+", requirement) is None:
+          raise SystemExit("requirements-pre-commit.txt must contain one exact pre-commit pin")
+      subprocess.run(
+          [sys.executable, "-m", "pip", "install", "--requirement", "requirements-pre-commit.txt"],
+          check=True,
+      )
+      expected = requirement.replace("==", " ", 1)
+      actual = subprocess.check_output(["pre-commit", "--version"], text=True).strip()
+      if actual != expected:
+          raise SystemExit(f"pre-commit version mismatch: expected {expected}, got {actual}")
+      print(actual)
+      PY
+    displayName: "Install pre-commit"
+    workingDirectory: "$(Build.SourcesDirectory)"
+
+  - bash: |
+      set -euo pipefail
+      pre-commit run --all-files
+    displayName: "Run pre-commit hooks"
+    workingDirectory: "$(Build.SourcesDirectory)"
